@@ -1,0 +1,264 @@
+---
+title: "Project1"
+author: "Mike Steyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(RColorBrewer)
+```
+
+```{r}
+paletteName <- "Dark2"
+```
+
+```{r}
+## read in the data file from the current dir's "r project data.csv" file
+salary_df <- read_csv("./r project data.csv")
+
+```
+
+```{r}
+## factorize where appropriate
+salary_df$experience_level <- factor(salary_df$experience_level, levels=c("EN","MI","SE","EX"))
+salary_df$employment_type <- factor(salary_df$employment_type)
+salary_df$salary_currency <- factor(salary_df$salary_currency)
+salary_df$employee_residence <- factor(salary_df$employee_residence)
+salary_df$company_location <- factor(salary_df$company_location)
+salary_df$company_size <- factor(salary_df$company_size)
+salary_df$work_year <- factor(salary_df$work_year)
+
+## add a column that cleans up the remote work var
+salary_df <- salary_df %>%
+  mutate(remote_type = case_when(
+    remote_ratio == 0 ~ "None",
+    remote_ratio == 50 ~ "Hybrid",
+    remote_ratio == 100 ~ "Remote"
+    )
+  ) %>%
+  select(!c(remote_ratio))
+
+salary_df$remote_type <- factor(salary_df$remote_type)
+
+head(salary_df)
+str(salary_df)
+
+```
+
+```{r}
+## Let's analyze the titles and try to get them as close to comparable as possible
+unique(salary_df$job_title)
+
+## Not too much to lean on for job_title, let's just use the experience level attached to the record
+##    (job titles are notoriously unhelpful when it comes to judging competence anyway)
+## Create a flag indicating if they're "leadership potential" - senior or expert/director
+leadership_potential_experience_levels = c("SE","EX")
+
+salary_df <- salary_df %>%
+  mutate(is_leadership_potential = experience_level %in% leadership_potential_experience_levels)
+
+## create flags indicating domestic (US) vs offshore (not US)
+salary_df <- salary_df %>%
+  mutate(employee_country_type = ifelse(employee_residence == "US", "Domestic", "Offshore")) %>%
+  mutate(company_country_type = ifelse(company_location == "US", "Domestic", "Offshore")) %>%
+  mutate(employment_status = paste("Company ", company_country_type, ", Employee ", employee_country_type, sep="")) %>%
+  # only include full-time
+  filter(employment_type == "FT")
+
+salary_df$employee_country_type <- factor(salary_df$employee_country_type)
+salary_df$company_country_type <- factor(salary_df$company_country_type)
+salary_df$employment_status <- factor(salary_df$employment_status)
+
+head(salary_df)
+
+```
+
+```{r}
+## let's shoot for the following:
+## - give an introduction of the data set and the different facets
+##    - total number of US based company positions
+##    - pie charts showing the year vs total
+## - show the trend of median "data job" salaries over time, stats of latest year (median, mean, min, max) - US companies only
+##    - US employee vs non-US employee
+## - show the trend of median leadership salaries over time, stats of latest year (median, mean, min, max) - US companies only
+##    - US employee vs non-US employee
+## - show median salary by company size by experience level for latest year (US employees)
+## - show median salary by company size by experience level for latest year (offshore employees)
+## - show salaries by office type (boxplot)
+```
+
+```{r}
+summary(salary_df)
+str(salary_df)
+## Data Set Overview:
+## Total records: 607
+## Total US-based company positions: 355
+## Salary amounts in USD
+
+```
+```{r}
+## US Company Positions by Year
+## pie chart of the amount of US-based company positions found by year
+## src: https://r-graph-gallery.com/piechart-ggplot2.html, https://r-charts.com/part-whole/pie-chart-ggplot2/
+## output: ggsave()
+
+salary_df %>%
+  group_by(work_year) %>%
+  summarize(count = n()) %>%
+  ggplot(aes(x=work_year, y=count, fill=work_year)) +
+    geom_bar(stat="identity") +
+    scale_fill_brewer(palette = paletteName) +
+    theme(legend.position="none") +
+    ggtitle("Dataset Records by Year (Full-time Positions") +
+    xlab("Year of Position") + 
+    ylab("Number of Positions")
+
+ggsave("records-by-year.png")
+```
+```{r}
+## Trend "data job" position median salaries by year for US-based companies (on & offshore)
+
+all_data_jobs_salary_by_year <- salary_df %>%
+  group_by(work_year, employment_status) %>%
+  summarize(
+    median_salary_in_usd = median(salary_in_usd), 
+    mean_salary_in_usd = mean(salary_in_usd),
+    maximum_salary_in_usd = max(salary_in_usd),
+    minimum_salary_in_usd = min(salary_in_usd),
+    count = n(),
+    .groups = "drop"
+  )
+
+
+all_data_jobs_salary_by_year
+
+all_data_jobs_salary_by_year %>%
+    ggplot(aes(x=work_year, y=mean_salary_in_usd, fill=employment_status)) +
+    geom_bar(stat="identity", position = "dodge") +
+    scale_fill_brewer(palette = paletteName) +
+    xlab("Year") +
+    ylab("Mean Salary USD $") +
+    guides(fill=guide_legend(title="Employee Type")) +
+    ggtitle("Mean Salaries for Data Jobs By Year (FT, All Experience Levels)") +
+    scale_y_continuous(labels = scales::unit_format(prefix ="$ ", unit="")) 
+
+ggsave("all-data-jobs-salary-by-year.png")
+
+all_data_jobs_salary_by_year %>%
+    ggplot(aes(x=work_year, y=median_salary_in_usd, fill=employment_status)) +
+    geom_bar(stat="identity", position = "dodge") +
+    scale_fill_brewer(palette = paletteName) +
+    xlab("Year") +
+    ylab("Median Salary USD $") +
+    guides(fill=guide_legend(title="Employee Type")) +
+    ggtitle("Median Salaries for Data Jobs By Year (FT, All Experience Levels)") +
+    scale_y_continuous(labels = scales::unit_format(prefix ="$ ", unit="")) 
+
+ggsave("all-data-jobs-salary-by-year-median.png")
+
+```
+
+```{r}
+## - show the trend of median leadership salaries over time, stats of latest year (median, mean, min, max) - US companies only
+##    - US employee vs non-US employee
+leadership_data_jobs_salary_by_year <- salary_df %>%
+  filter(is_leadership_potential == TRUE) %>%
+  group_by(work_year, employment_status) %>%
+  summarize(
+    median_salary_in_usd = median(salary_in_usd), 
+    mean_salary_in_usd = mean(salary_in_usd),
+    maximum_salary_in_usd = max(salary_in_usd),
+    minimum_salary_in_usd = min(salary_in_usd),
+    count = n(),
+    .groups = "drop"
+  ) 
+
+leadership_data_jobs_salary_by_year
+
+leadership_data_jobs_salary_by_year %>%
+    ggplot(aes(x=work_year, y=mean_salary_in_usd, fill=employment_status)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    scale_fill_brewer(palette = paletteName) +
+    xlab("Year") +
+    ylab("Mean Salary USD $") +
+    guides(fill=guide_legend(title="Employee Type")) +
+    ggtitle("Mean Salaries for Data Jobs By Year (FT, Leadership Roles)") + 
+    scale_y_continuous(labels = scales::unit_format(prefix ="$ ", unit=""))
+
+ggsave("leadership-data-jobs-salary-by-year.png")
+
+leadership_data_jobs_salary_by_year %>%
+    ggplot(aes(x=work_year, y=median_salary_in_usd, fill=employment_status)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    scale_fill_brewer(palette = paletteName) +
+    xlab("Year") +
+    ylab("Median Salary USD $") +
+    guides(fill=guide_legend(title="Employee Type")) +
+    ggtitle("Median Salaries for Data Jobs By Year (FT, Leadership Roles)") + 
+    scale_y_continuous(labels = scales::unit_format(prefix ="$ ", unit=""))
+
+ggsave("leadership-data-jobs-salary-by-year-median.png")
+
+```
+
+```{r}
+## 
+
+latest_year <- 2022
+
+salary_latest_full_time_us_companies_df <- salary_df %>%
+  filter(company_country_type == "Domestic") %>%
+  filter(work_year == latest_year & employment_type == "FT")
+
+salary_latest_full_time_us_companies_long_df <- pivot_longer(
+      salary_latest_full_time_us_companies_df %>%
+      group_by(experience_level, employee_country_type) %>%
+      summarize(
+        median_salary = median(salary_in_usd),
+        mean_salary = mean(salary_in_usd),
+        .groups = "drop"
+      ),
+      !c(experience_level, employee_country_type),
+      names_to = "metric",
+      values_to = "value"
+    )
+
+salary_latest_full_time_us_companies_long_df
+
+salary_latest_full_time_us_companies_long_df %>%
+  filter(employee_country_type == "Domestic") %>%
+  ggplot(aes(x= experience_level, y=value, fill=metric)) +
+    geom_bar(stat="identity", position = "dodge") +
+    scale_fill_brewer(palette = paletteName) +
+    xlab("Experience Level") +
+    ylab("USD $") +
+    guides(fill=guide_legend(title="Employee Type")) +
+    ggtitle(paste("Salary Amounts for Data Jobs in ", latest_year, " - Domestic Employees")) +
+    scale_y_continuous(labels = scales::unit_format(prefix ="$ ", unit=""))
+
+ggsave("domestic-salaries-2022-by-experience.png")
+
+salary_latest_full_time_us_companies_long_df %>%
+  filter(employee_country_type == "Offshore") %>%
+  ggplot(aes(x= experience_level, y=value, fill=metric)) +
+    geom_bar(stat="identity", position = "dodge") +
+    scale_fill_brewer(palette = paletteName) +
+    xlab("Experience Level") +
+    ylab("USD $") +
+    guides(fill=guide_legend(title="Employee Type")) +
+    ggtitle(paste("Salary Amounts for Data Jobs in ", latest_year, " - Offshore Employees")) +
+    scale_y_continuous(labels = scales::unit_format(prefix ="$ ", unit=""))
+
+ggsave("offshore-salaries-2022-by-experience.png")
+
+```
+
+
+
